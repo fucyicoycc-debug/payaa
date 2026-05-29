@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<meta name="theme-color" content="#0d1117"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="بيّاع"/>
+<meta name="description" content="نظام نقطة البيع الذكي للمحلات التجارية الصغيرة"/>
+<title>بيّاع — نقطة البيع</title>
+
+<!-- PWA Manifest مضمّن -->
+<link rel="manifest" href="data:application/json;charset=utf-8,%7B%22name%22%3A%22%D8%A8%D9%8A%D9%91%D8%A7%D8%B9%20%E2%80%94%20%D9%86%D9%82%D8%B7%D8%A9%20%D8%A7%D9%84%D8%A8%D9%8A%D8%B9%22%2C%22short_name%22%3A%22%D8%A8%D9%8A%D9%91%D8%A7%D8%B9%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%230d1117%22%2C%22theme_color%22%3A%22%230d1117%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22data%3Aimage%2Fsvg%2Bxml%2C%253Csvg%2520xmlns%3D%2527http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%2527%2520viewBox%3D%25270%25200%2520100%2520100%2527%253E%253Crect%2520width%3D%2527100%2527%2520height%3D%2527100%2527%2520rx%3D%252720%2527%2520fill%3D%2527%2523238636%2527%2F%253E%253Ctext%2520y%3D%2527.9em%2527%2520font-size%3D%252770%2527%2520x%3D%252715%2527%253E%F0%9F%8F%AA%253C%2Ftext%253E%253C%2Fsvg%253E%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fsvg%2Bxml%22%7D%5D%7D"/>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;900&display=swap" rel="stylesheet"/>
+
+<!-- React & Babel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<!-- jsQR for barcode scanning -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{min-height:100vh;min-height:100dvh;background:#0d1117;
+  font-family:'Cairo',sans-serif;direction:rtl;overscroll-behavior:none;}
+body{-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-thumb{background:#238636;border-radius:4px;}
+input,select,button{-webkit-appearance:none;appearance:none;}
+/* safe area for notch phones */
+.tb{padding-top:max(10px,env(safe-area-inset-top))!important;}
+.sc{padding-bottom:max(28px,env(safe-area-inset-bottom))!important;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ══════════ ثوابت الألوان ══════════ */
+const C = {
+  bg:"#0d1117", surf:"rgba(22,27,34,0.92)", border:"rgba(48,54,61,0.8)",
+  green:"#2ea043", greenD:"#238636", greenBg:"rgba(35,134,54,0.08)", greenBr:"rgba(35,134,54,0.38)",
+  text:"#e6edf3", muted:"#7d8590", dim:"#484f58",
+  red:"#f85149", redBg:"rgba(218,54,51,0.11)", redBr:"rgba(218,54,51,0.3)", orange:"#f0883e",
+};
+
+/* ══════════ بيانات المستخدمين ══════════ */
+const USERS = {
+  "0912345678":{ name:"أحمد محمد",    pin:"1234", subscribed:true,  subExpiry:"2027-01-01" },
+  "0923456789":{ name:"سارة خليل",    pin:"5678", subscribed:false, subExpiry:null },
+  "0934567890":{ name:"خالد إبراهيم", pin:"9012", subscribed:true,  subExpiry:"2026-07-01" },
+};
+
+/* ══════════ منتجات افتراضية ══════════ */
+const INIT_PRODS = {
+  "6001":{ name:"زيت زيتون 500مل", price:12.5, stock:8,   expiry:"2026-07-15", category:"غذائي" },
+  "6002":{ name:"سكر 1كغ",         price:3.75, stock:120, expiry:"2027-06-15", category:"غذائي" },
+  "6003":{ name:"أرز بسمتي 2كغ",   price:8.9,  stock:5,   expiry:"2026-06-10", category:"غذائي" },
+  "6004":{ name:"شامبو هيد شولدر", price:15.0, stock:30,  expiry:"2027-03-20", category:"عناية" },
+  "6005":{ name:"حليب 1لتر",        price:5.5,  stock:3,   expiry:"2026-06-05", category:"ألبان" },
+};
+const INIT_SETS = { lowStock:10, expiryDays:30 };
+
+/* ══════════ مساعدات ══════════ */
+const daysUntil = d => Math.ceil((new Date(d)-new Date())/86400000);
+const fmtDate   = d => new Date(d).toLocaleDateString("ar-LY",{year:"numeric",month:"short",day:"numeric"});
+const fmtTime   = ts => new Date(ts).toLocaleString("ar-LY",{year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:true});
+const newId     = () => "INV-"+Date.now().toString(36).toUpperCase();
+
+/* ══════════ LocalStorage (بدلاً من window.storage) ══════════ */
+const sg = k => { try{ const v=localStorage.getItem(k); return v?JSON.parse(v):null; }catch{ return null; } };
+const ss = (k,v) => { try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} };
+
+/* ══════════ Global CSS Injector ══════════ */
+function injectCSS() {
+  if (document.getElementById("bayyaa-css")) return;
+  const s = document.createElement("style");
+  s.id = "bayyaa-css";
+  s.textContent = `
+.app{min-height:100vh;min-height:100dvh;background:linear-gradient(160deg,#0d1117 0%,#161b22 50%,#0d1f12 100%);color:#e6edf3;direction:rtl;font-family:'Cairo',sans-serif;}
+.tb{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(13,17,23,0.97);border-bottom:1px solid rgba(48,54,61,0.8);position:sticky;top:0;z-index:100;backdrop-filter:blur(14px);}
+.tb-logo{display:flex;align-items:center;gap:9px;}
+.tb-ico{width:38px;height:38px;background:linear-gradient(135deg,#238636,#2ea043);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 4px 14px rgba(35,134,54,0.38);flex-shrink:0;}
+.tb-name{font-size:19px;font-weight:900;color:#fff;line-height:1;}
+.tb-user{font-size:10px;color:#7d8590;}
+.tb-nav{display:flex;gap:4px;align-items:center;flex-wrap:nowrap;}
+.nb{position:relative;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.09);border-radius:11px;width:44px;height:44px;color:#7d8590;font-size:19px;cursor:pointer;transition:all .16s;display:flex;align-items:center;justify-content:center;font-family:'Cairo',sans-serif;}
+.nb:active,.nb.on{background:rgba(35,134,54,0.17);border-color:rgba(35,134,54,0.38);color:#2ea043;}
+.nb-bd{position:absolute;top:-5px;right:-5px;background:#da3633;color:#fff;border-radius:10px;font-size:9px;font-weight:700;padding:1px 5px;min-width:16px;text-align:center;}
+.nb-out{font-size:12px;width:auto;padding:0 10px;border-radius:9px;background:rgba(218,54,51,0.13);color:#f85149;border-color:rgba(218,54,51,0.25);}
+.nb-out:active{background:rgba(218,54,51,0.22);}
+.sc{padding:13px;max-width:520px;margin:0 auto;padding-bottom:28px;}
+.card{background:rgba(22,27,34,0.92);border:1px solid rgba(48,54,61,0.8);border-radius:15px;padding:14px;}
+.card-g{border-color:rgba(35,134,54,0.38);background:rgba(35,134,54,0.08);}
+.card-r{border-color:rgba(218,54,51,0.3);background:rgba(218,54,51,0.11);}
+.btn{border:none;border-radius:11px;padding:11px 16px;font-family:'Cairo',sans-serif;font-weight:700;cursor:pointer;transition:all .16s;font-size:14px;}
+.btn-p{background:linear-gradient(135deg,#238636,#2ea043);color:#fff;width:100%;box-shadow:0 4px 15px rgba(35,134,54,0.3);}
+.btn-p:active{transform:scale(.97);}
+.btn-p:disabled{opacity:.37;cursor:not-allowed;}
+.btn-s{background:rgba(255,255,255,0.06);color:#7d8590;border:1px solid rgba(255,255,255,0.09);}
+.btn-s:active{background:rgba(255,255,255,0.11);}
+.btn-d{background:rgba(218,54,51,0.11);color:#f85149;border:1px solid rgba(218,54,51,0.3);}
+.btn-d:active{background:rgba(218,54,51,0.2);}
+.btn-sm{padding:5px 11px;font-size:12px;border-radius:7px;}
+.inp{width:100%;background:rgba(13,17,23,0.8);border:1.5px solid rgba(48,54,61,0.8);border-radius:10px;padding:10px 14px;color:#e6edf3;font-size:15px;font-family:'Cairo',sans-serif;outline:none;transition:all .2s;text-align:right;}
+.inp:focus{border-color:#238636;background:rgba(35,134,54,0.05);box-shadow:0 0 0 3px rgba(35,134,54,0.13);}
+.inp::placeholder{color:#484f58;}
+select.inp{cursor:pointer;}
+.lbl{color:#7d8590;font-size:12px;margin-bottom:5px;font-weight:600;}
+.prow{background:rgba(22,27,34,0.88);border:1px solid rgba(48,54,61,0.8);border-radius:12px;padding:12px;margin-bottom:8px;transition:border-color .16s;animation:sli .2s ease;}
+@keyframes sli{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.qc{display:flex;align-items:center;gap:6px;}
+.qb{width:30px;height:30px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.11);border-radius:7px;color:#e6edf3;font-size:18px;cursor:pointer;transition:all .13s;display:flex;align-items:center;justify-content:center;}
+.qb:active{background:rgba(35,134,54,0.27);border-color:#238636;}
+.qn{color:#fff;font-weight:700;font-size:14px;min-width:22px;text-align:center;}
+.tag{padding:1px 7px;border-radius:20px;font-size:10px;font-weight:700;}
+.tr{background:rgba(218,54,51,.17);color:#f85149;}
+.to{background:rgba(210,105,30,.17);color:#f0883e;}
+.tg{background:rgba(35,134,54,.17);color:#3fb950;}
+.scan-modal{position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;}
+.scan-box{position:relative;background:#000;border:2px solid rgba(35,134,54,0.5);border-radius:15px;overflow:hidden;width:100%;max-width:300px;aspect-ratio:1;}
+.scan-box video{width:100%;height:100%;object-fit:cover;display:block;}
+.scan-frame{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:60%;height:60%;border:2px solid #2ea043;border-radius:9px;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);}
+.scan-line{position:absolute;left:20%;width:60%;height:2px;background:linear-gradient(90deg,transparent,#2ea043,transparent);animation:scl 2s ease-in-out infinite;}
+@keyframes scl{0%,100%{top:20%}50%{top:80%}}
+.lw{min-height:100vh;min-height:100dvh;background:linear-gradient(160deg,#0d1117,#0d1f12);display:flex;align-items:center;justify-content:center;padding:20px;direction:rtl;}
+.lcard{background:rgba(22,27,34,0.97);border:1px solid rgba(48,54,61,0.9);border-radius:21px;padding:36px 28px;width:100%;max-width:385px;box-shadow:0 40px 80px rgba(0,0,0,0.55);}
+.pdots{display:flex;justify-content:center;gap:11px;margin:16px 0;}
+.pd{width:13px;height:13px;border-radius:50%;border:2px solid #30363d;transition:all .18s;}
+.pd.on{background:#2ea043;border-color:#2ea043;box-shadow:0 0 9px rgba(46,160,67,.5);}
+.numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.nk{background:rgba(255,255,255,0.055);border:1px solid rgba(255,255,255,0.09);border-radius:10px;padding:14px;color:#e6edf3;font-size:22px;font-weight:700;font-family:'Cairo',sans-serif;cursor:pointer;transition:all .13s;}
+.nk:active{background:rgba(35,134,54,0.2);border-color:#238636;transform:scale(.93);}
+.shk{animation:shk .37s ease;}
+@keyframes shk{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+.rp{background:#fff;color:#111;border-radius:13px;padding:22px 18px;font-family:'Cairo',sans-serif;direction:rtl;}
+.ni{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:10px;margin-bottom:7px;}
+.ni-ico{width:33px;height:33px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.sr{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(48,54,61,0.42);}
+.sl{color:#e6edf3;font-size:13px;font-weight:600;}
+.ss{color:#7d8590;font-size:11px;}
+.ni2{width:76px;background:rgba(13,17,23,0.8);border:1.5px solid rgba(48,54,61,0.8);border-radius:7px;padding:6px 10px;color:#e6edf3;font-size:14px;font-family:'Cairo',sans-serif;outline:none;text-align:center;}
+.ni2:focus{border-color:#238636;}
+.emp{text-align:center;padding:34px 14px;}
+.emp-i{font-size:42px;margin-bottom:9px;}
+.emp-t{color:#484f58;font-size:12px;}
+.dv{height:1px;background:rgba(48,54,61,0.8);margin:10px 0;}
+.inv-card{background:rgba(22,27,34,0.88);border:1px solid rgba(48,54,61,0.8);border-radius:12px;margin-bottom:9px;overflow:hidden;cursor:pointer;transition:border-color .16s;}
+.inv-card:active{border-color:rgba(35,134,54,0.38);}
+.inv-head{padding:11px 13px;display:flex;justify-content:space-between;align-items:center;}
+.inv-body{padding:0 13px 11px;border-top:1px solid rgba(48,54,61,0.45);}
+/* install banner */
+.install-bar{position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,#238636,#2ea043);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;z-index:300;box-shadow:0 -4px 20px rgba(35,134,54,0.3);padding-bottom:max(12px,env(safe-area-inset-bottom));}
+`;
+  document.head.appendChild(s);
+}
+
+/* ══════════ QR Scanner ══════════ */
+function QRScanner({ onScan, onClose }) {
+  const vidRef=useRef(null), canvasRef=useRef(null), streamRef=useRef(null), rafRef=useRef(null);
+  const [camErr,setCamErr]=useState(false);
+  const [manual,setManual]=useState("");
+
+  useEffect(()=>{
+    let alive=true;
+    (async()=>{
+      try{
+        const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment",width:{ideal:1280},height:{ideal:720}}});
+        streamRef.current=s;
+        if(!vidRef.current||!alive)return;
+        vidRef.current.srcObject=s;
+        await vidRef.current.play();
+        tick();
+      }catch{ setCamErr(true); }
+    })();
+    function tick(){
+      const v=vidRef.current,cv=canvasRef.current;
+      if(!v||!cv||!alive)return;
+      if(v.readyState===v.HAVE_ENOUGH_DATA){
+        cv.width=v.videoWidth;cv.height=v.videoHeight;
+        const ctx=cv.getContext("2d");
+        ctx.drawImage(v,0,0,cv.width,cv.height);
+        try{
+          if(window.jsQR){
+            const r=window.jsQR(ctx.getImageData(0,0,cv.width,cv.height).data,cv.width,cv.height);
+            if(r){stop();onScan(r.data);return;}
+          }
+        }catch{}
+      }
+      rafRef.current=requestAnimationFrame(tick);
+    }
+    function stop(){
+      alive=false;
+      if(rafRef.current)cancelAnimationFrame(rafRef.current);
+      if(streamRef.current)streamRef.current.getTracks().forEach(t=>t.stop());
+    }
+    return stop;
+  },[onScan]);
+
+  const go=()=>{ if(manual.trim()){onClose();onScan(manual.trim());} };
+
+  return (
+    <div className="scan-modal">
+      <div style={{width:"100%",maxWidth:340}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
+          <p style={{color:"#fff",fontWeight:700,fontSize:15}}>📷 مسح رمز المنتج</p>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,0.1)",border:"none",borderRadius:7,padding:"6px 14px",color:"#ccc",cursor:"pointer",fontFamily:"'Cairo',sans-serif",fontSize:13}}>✕ إغلاق</button>
+        </div>
+        <div className="scan-box">
+          {camErr
+            ? <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",padding:20,textAlign:"center",color:"#f85149",fontSize:13,lineHeight:1.6}}>
+                تعذّر الوصول للكاميرا<br/>استخدم الإدخال اليدوي أدناه
+              </div>
+            : <><video ref={vidRef} muted playsInline/><div className="scan-frame"/><div className="scan-line"/></>
+          }
+          <canvas ref={canvasRef} style={{display:"none"}}/>
+        </div>
+        <p style={{color:"#7d8590",fontSize:12,textAlign:"center",margin:"12px 0 8px"}}>أو أدخل الكود يدوياً</p>
+        <div style={{display:"flex",gap:7}}>
+          <input className="inp" placeholder="كود المنتج..." value={manual}
+            onChange={e=>setManual(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&go()} style={{flex:1}}/>
+          <button className="btn btn-p" style={{width:"auto",padding:"10px 18px"}} onClick={go}>إدخال</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════ Login ══════════ */
+function LoginScreen({onLogin}){
+  const [phone,setPhone]=useState("");
+  const [pin,setPin]=useState("");
+  const [name,setName]=useState("");
+  const [step,setStep]=useState("info");
+  const [err,setErr]=useState("");
+  const [shake,setShake]=useState(false);
+  const [busy,setBusy]=useState(false);
+
+  const bad=msg=>{setErr(msg);setShake(true);setTimeout(()=>setShake(false),450);};
+
+  const goPin=()=>{
+    if(!name.trim())return bad("أدخل اسمك");
+    if(phone.length<10)return bad("رقم الهاتف غير صحيح");
+    setErr("");setStep("pin");
+  };
+
+  const doLogin=()=>{
+    setBusy(true);
+    setTimeout(()=>{
+      const u=USERS[phone];
+      if(!u){setBusy(false);return bad("رقم الهاتف غير مسجل");}
+      if(u.pin!==pin){setPin("");setBusy(false);return bad("الرمز غير صحيح");}
+      if(!u.subscribed){setBusy(false);return bad("غير مشترك — الباقة 45 د.ل، تواصل مع الإدارة");}
+      if(u.subExpiry&&daysUntil(u.subExpiry)<0){setBusy(false);return bad("انتهى اشتراكك — يرجى التجديد");}
+      const ud={phone,name:u.name,plan:"باقة بريميوم",subExpiry:u.subExpiry};
+      ss("session:user",ud);
+      onLogin(ud);
+      setBusy(false);
+    },600);
+  };
+
+  return (
+    <div className="lw">
+      <div className={`lcard${shake?" shk":""}`}>
+        <div style={{textAlign:"center",marginBottom:26}}>
+          <div style={{width:62,height:62,background:"linear-gradient(135deg,#238636,#2ea043)",borderRadius:16,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",fontSize:26,boxShadow:"0 8px 22px rgba(35,134,54,0.35)"}}>🏪</div>
+          <h1 style={{color:"#fff",fontSize:26,fontWeight:900}}>بيّاع</h1>
+          <p style={{color:"#7d8590",fontSize:12,marginTop:3}}>نظام نقطة البيع الذكي</p>
+        </div>
+        {step==="info" ? <>
+          <div style={{marginBottom:13}}>
+            <p className="lbl">الاسم الكامل</p>
+            <input className="inp" placeholder="اسمك" value={name} onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&goPin()}/>
+          </div>
+          <div style={{marginBottom:20}}>
+            <p className="lbl">رقم الهاتف</p>
+            <input className="inp" placeholder="09XXXXXXXX" value={phone} type="tel"
+              onChange={e=>setPhone(e.target.value.replace(/\D/g,"").slice(0,10))}
+              onKeyDown={e=>e.key==="Enter"&&goPin()}/>
+          </div>
+          {err&&<p style={{color:"#f85149",fontSize:12,textAlign:"center",marginBottom:11}}>{err}</p>}
+          <button className="btn btn-p" onClick={goPin}>التالي →</button>
+          <p style={{textAlign:"center",color:"#30363d",fontSize:10,marginTop:14}}>الاشتراك: 45 د.ل — تواصل مع الإدارة</p>
+        </> : <>
+          <button onClick={()=>{setStep("info");setPin("");setErr("");}}
+            style={{background:"none",border:"none",color:"#7d8590",cursor:"pointer",fontFamily:"'Cairo',sans-serif",fontSize:12,marginBottom:14}}>← رجوع</button>
+          <p style={{color:"#e6edf3",textAlign:"center",fontSize:14,marginBottom:2}}>مرحباً، {name}</p>
+          <p style={{color:"#7d8590",textAlign:"center",fontSize:11,marginBottom:4}}>أدخل رمز الدخول (4 أرقام)</p>
+          <div className="pdots">{[0,1,2,3].map(i=><div key={i} className={`pd${pin.length>i?" on":""}`}/>)}</div>
+          {err&&<p style={{color:"#f85149",fontSize:12,textAlign:"center",marginBottom:9}}>{err}</p>}
+          <div className="numpad">
+            {[1,2,3,4,5,6,7,8,9].map(n=>(
+              <button key={n} className="nk" onClick={()=>pin.length<4&&setPin(p=>p+n)}>{n}</button>
+            ))}
+            <button className="nk" style={{fontSize:14}} onClick={()=>setPin(p=>p.slice(0,-1))}>⌫</button>
+            <button className="nk" onClick={()=>pin.length<4&&setPin(p=>p+"0")}>0</button>
+            <button className="nk"
+              style={{background:pin.length===4?"linear-gradient(135deg,#238636,#2ea043)":undefined,fontSize:18}}
+              onClick={doLogin} disabled={pin.length<4||busy}>{busy?"⏳":"✓"}</button>
+          </div>
+        </>}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════ POS Tab ══════════ */
+function POSTab({prods,saveProds,addSale}){
+  const [cart,setCart]=useState([]);
+  const [scanning,setScanning]=useState(false);
+  const [lastP,setLastP]=useState(null);
+  const [noFind,setNoFind]=useState(false);
+  const [showRec,setShowRec]=useState(false);
+  const [curRec,setCurRec]=useState(null);
+
+  const handleScan=useCallback(code=>{
+    setScanning(false);
+    const p=prods[code];
+    if(!p){setNoFind(true);setLastP(null);setTimeout(()=>setNoFind(false),2200);return;}
+    setLastP({...p,code});
+    setCart(prev=>{
+      const ex=prev.find(i=>i.code===code);
+      if(ex)return prev.map(i=>i.code===code?{...i,qty:Math.min(prods[code].stock,i.qty+1)}:i);
+      return [...prev,{...p,code,qty:1}];
+    });
+  },[prods]);
+
+  const remove=code=>setCart(p=>p.filter(i=>i.code!==code));
+  const chgQty=(code,d)=>setCart(p=>p.map(i=>{
+    if(i.code!==code)return i;
+    const mx=prods[code]?.stock??i.qty;
+    return{...i,qty:Math.min(mx,Math.max(1,i.qty+d))};
+  }));
+  const total=cart.reduce((s,i)=>s+i.price*i.qty,0);
+
+  const checkout=()=>{
+    const upd={...prods};
+    cart.forEach(it=>{if(upd[it.code])upd[it.code]={...upd[it.code],stock:Math.max(0,upd[it.code].stock-it.qty)};});
+    saveProds(upd);
+    const rec={id:newId(),ts:Date.now(),
+      items:cart.map(i=>({code:i.code,name:i.name,qty:i.qty,price:i.price,total:+(i.price*i.qty).toFixed(2)})),
+      total:+total.toFixed(2)};
+    addSale(rec);setCurRec(rec);setShowRec(true);
+  };
+
+  const newSale=()=>{setCart([]);setShowRec(false);setLastP(null);setCurRec(null);};
+
+  if(showRec&&curRec)return(
+    <div className="sc">
+      <div className="rp">
+        <div style={{textAlign:"center",borderBottom:"2px dashed #ccc",paddingBottom:13,marginBottom:13}}>
+          <div style={{fontSize:30,marginBottom:5}}>🧾</div>
+          <h2 style={{fontSize:16,fontWeight:900}}>فاتورة بيّاع</h2>
+          <p style={{color:"#666",fontSize:11,marginTop:2}}>{curRec.id}</p>
+          <p style={{color:"#555",fontSize:11}}>{fmtTime(curRec.ts)}</p>
+        </div>
+        {curRec.items.map((it,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #f0f0f0",fontSize:12}}>
+            <span style={{fontWeight:700}}>{it.name}</span>
+            <span style={{color:"#238636",fontWeight:700}}>{it.qty} × {it.price.toFixed(2)} = {it.total.toFixed(2)} د.ل</span>
+          </div>
+        ))}
+        <div style={{display:"flex",justifyContent:"space-between",marginTop:13,borderTop:"2px solid #111",paddingTop:9,fontSize:17,fontWeight:900}}>
+          <span>المجموع</span><span style={{color:"#238636"}}>{curRec.total.toFixed(2)} د.ل</span>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:8,marginTop:12}}>
+        <button className="btn btn-p" onClick={newSale} style={{flex:1}}>بيع جديد +</button>
+        <button className="btn btn-s" onClick={()=>setShowRec(false)} style={{flex:1}}>تعديل</button>
+      </div>
+    </div>
+  );
+
+  return(
+    <div className="sc">
+      {scanning&&<QRScanner onScan={handleScan} onClose={()=>setScanning(false)}/>}
+      <button className="btn btn-p" style={{marginBottom:11,fontSize:15}} onClick={()=>setScanning(true)}>
+        📷 مسح رمز QR / الباركود
+      </button>
+      {noFind&&<div className="card card-r" style={{marginBottom:11,textAlign:"center",padding:"9px 13px"}}><p style={{color:"#f85149",fontSize:12}}>⚠️ المنتج غير موجود — تحقق من الكود أو أضفه أولاً</p></div>}
+      {lastP&&!noFind&&(
+        <div className="card card-g" style={{marginBottom:11,animation:"sli .22s ease"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <p style={{color:"#e6edf3",fontWeight:700,fontSize:13}}>{lastP.name}</p>
+              <p style={{color:"#7d8590",fontSize:11,marginTop:2}}>📦 {lastP.stock} وحدة  ·  📅 {fmtDate(lastP.expiry)}</p>
+            </div>
+            <p style={{color:"#3fb950",fontSize:18,fontWeight:900}}>{lastP.price.toFixed(2)} د.ل</p>
+          </div>
+        </div>
+      )}
+      <div className="card" style={{marginBottom:11}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <p style={{color:"#e6edf3",fontWeight:700,fontSize:13}}>🛍️ السلة</p>
+          {cart.length>0&&<span className="tag tg">{cart.reduce((s,i)=>s+i.qty,0)} منتج</span>}
+        </div>
+        {cart.length===0
+          ?<div className="emp"><div className="emp-i">🏪</div><p className="emp-t">امسح رمز منتج لبدء البيع</p></div>
+          :<div style={{maxHeight:"38vh",overflowY:"auto"}}>
+            {cart.map(item=>{
+              const d=daysUntil(item.expiry);
+              const mx=prods[item.code]?.stock??item.qty;
+              return(
+                <div key={item.code} className="prow">
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                    <div style={{flex:1}}>
+                      <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:3}}>
+                        <p style={{color:"#e6edf3",fontWeight:700,fontSize:13}}>{item.name}</p>
+                        {d<0&&<span className="tag tr">منتهي</span>}
+                        {d>=0&&d<=30&&<span className="tag to">ينتهي قريباً</span>}
+                        {item.qty>=mx&&<span className="tag to">الحد الأقصى</span>}
+                      </div>
+                      <p style={{color:"#484f58",fontSize:10}}>كود: {item.code}  ·  الوحدة: {item.price.toFixed(2)} د.ل  ·  متوفر: {mx}</p>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5,marginRight:5}}>
+                      <p style={{color:"#3fb950",fontWeight:900,fontSize:14}}>{(item.price*item.qty).toFixed(2)} د.ل</p>
+                      <div className="qc">
+                        <button className="qb" onClick={()=>chgQty(item.code,-1)}>−</button>
+                        <span className="qn">{item.qty}</span>
+                        <button className="qb" onClick={()=>chgQty(item.code,1)} disabled={item.qty>=mx}>+</button>
+                      </div>
+                      <button className="btn btn-d btn-sm" onClick={()=>remove(item.code)}>🗑 حذف</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        }
+      </div>
+      <div className="card card-g" style={{marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <p style={{color:"#7d8590",fontSize:13,fontWeight:600}}>المجموع الكلي</p>
+          <p style={{color:"#3fb950",fontSize:24,fontWeight:900}}>{total.toFixed(2)} <span style={{fontSize:12}}>د.ل</span></p>
+        </div>
+      </div>
+      <button className="btn btn-p" disabled={cart.length===0} onClick={checkout} style={{fontSize:15}}>
+        ✅ إتمام البيع وإصدار الفاتورة
+      </button>
+    </div>
+  );
+}
+
+/* ══════════ Products Tab ══════════ */
+function ProductsTab({prods,saveProds,sets}){
+  const [mode,setMode]=useState("list");
+  const [edit,setEdit]=useState(null);
+  const [scan,setScan]=useState(false);
+  const [form,setForm]=useState({code:"",name:"",price:"",stock:"",expiry:"",category:"غذائي"});
+  const [err,setErr]=useState("");
+
+  const openAdd=()=>{setForm({code:"",name:"",price:"",stock:"",expiry:"",category:"غذائي"});setErr("");setMode("add");};
+  const openEdit=code=>{
+    const p=prods[code];
+    setForm({code,name:p.name,price:p.price,stock:p.stock,expiry:p.expiry,category:p.category||"غذائي"});
+    setEdit(code);setErr("");setMode("edit");
+  };
+  const scanCode=c=>{setScan(false);setForm(f=>({...f,code:c}));};
+
+  const save=()=>{
+    if(!form.code.trim()||!form.name.trim()||!form.price||!form.stock||!form.expiry)return setErr("يرجى تعبئة جميع الحقول");
+    const u={...prods};
+    u[form.code.trim()]={name:form.name.trim(),price:parseFloat(form.price),stock:parseInt(form.stock),expiry:form.expiry,category:form.category};
+    if(edit&&edit!==form.code.trim())delete u[edit];
+    saveProds(u);setMode("list");
+  };
+
+  const del=code=>{if(confirm("هل تريد حذف هذا المنتج؟")){const u={...prods};delete u[code];saveProds(u);}};
+
+  if(mode!=="list")return(
+    <div className="sc">
+      {scan&&<QRScanner onScan={scanCode} onClose={()=>setScan(false)}/>}
+      <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:16}}>
+        <button className="btn btn-s btn-sm" onClick={()=>setMode("list")}>← رجوع</button>
+        <h2 style={{color:"#e6edf3",fontSize:15,fontWeight:700}}>{mode==="add"?"إضافة منتج جديد":"تعديل المنتج"}</h2>
+      </div>
+      <div className="card">
+        <div style={{marginBottom:12}}>
+          <p className="lbl">كود المنتج</p>
+          <div style={{display:"flex",gap:7}}>
+            <input className="inp" placeholder="أدخل أو امسح الكود" value={form.code} onChange={e=>setForm(f=>({...f,code:e.target.value}))} style={{flex:1}}/>
+            <button className="btn btn-s btn-sm" style={{flexShrink:0}} onClick={()=>setScan(true)}>📷</button>
+          </div>
+        </div>
+        {[{l:"اسم المنتج",k:"name",p:"مثال: سكر 1كغ",t:"text"},{l:"السعر (د.ل)",k:"price",p:"0.00",t:"number"},{l:"الكمية في المستودع",k:"stock",p:"0",t:"number"}].map(f=>(
+          <div key={f.k} style={{marginBottom:12}}>
+            <p className="lbl">{f.l}</p>
+            <input className="inp" placeholder={f.p} type={f.t} value={form[f.k]} onChange={e=>setForm(x=>({...x,[f.k]:e.target.value}))}/>
+          </div>
+        ))}
+        <div style={{marginBottom:12}}>
+          <p className="lbl">تاريخ انتهاء الصلاحية</p>
+          <input className="inp" type="date" value={form.expiry} onChange={e=>setForm(f=>({...f,expiry:e.target.value}))}/>
+        </div>
+        <div style={{marginBottom:16}}>
+          <p className="lbl">الفئة</p>
+          <select className="inp" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+            {["غذائي","ألبان","عناية","مشروبات","أخرى"].map(x=><option key={x} value={x}>{x}</option>)}
+          </select>
+        </div>
+        {err&&<p style={{color:"#f85149",fontSize:12,marginBottom:12}}>{err}</p>}
+        <button className="btn btn-p" onClick={save}>{mode==="add"?"✅ إضافة المنتج":"💾 حفظ التعديلات"}</button>
+      </div>
+    </div>
+  );
+
+  const entries=Object.entries(prods);
+  return(
+    <div className="sc">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
+        <h2 style={{color:"#e6edf3",fontSize:15,fontWeight:700}}>📦 المنتجات ({entries.length})</h2>
+        <button className="btn btn-p btn-sm" onClick={openAdd}>+ إضافة</button>
+      </div>
+      {entries.length===0
+        ?<div className="emp card"><div className="emp-i">📦</div><p className="emp-t">لا توجد منتجات — أضف أول منتج</p></div>
+        :entries.map(([code,p])=>{
+          const d=daysUntil(p.expiry),low=p.stock<=sets.lowStock;
+          return(
+            <div key={code} className="prow">
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                <div style={{flex:1}}>
+                  <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:3}}>
+                    <p style={{color:"#e6edf3",fontWeight:700,fontSize:13}}>{p.name}</p>
+                    {d<0&&<span className="tag tr">منتهي</span>}
+                    {d>=0&&d<=sets.expiryDays&&<span className="tag to">ينتهي قريباً</span>}
+                    {low&&<span className="tag tr">مخزون منخفض</span>}
+                  </div>
+                  <p style={{color:"#484f58",fontSize:10}}>كود: {code}  ·  كمية: {p.stock}  ·  ينتهي: {fmtDate(p.expiry)}</p>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                  <p style={{color:"#3fb950",fontWeight:900,fontSize:13}}>{p.price.toFixed(2)} د.ل</p>
+                  <div style={{display:"flex",gap:5}}>
+                    <button className="btn btn-s btn-sm" onClick={()=>openEdit(code)}>✏️</button>
+                    <button className="btn btn-d btn-sm" onClick={()=>del(code)}>🗑</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      }
+    </div>
+  );
+}
+
+/* ══════════ Restock Tab ══════════ */
+function RestockTab({prods,saveProds}){
+  const [scan,setScan]=useState(false);
+  const [form,setForm]=useState({code:"",name:"",price:"",stock:"",expiry:"",category:"غذائي"});
+  const [isExist,setIsExist]=useState(false);
+  const [done,setDone]=useState(false);
+  const [doneStock,setDoneStock]=useState(0);
+  const [err,setErr]=useState("");
+
+  const onCodeChange=code=>{
+    const t=code.trim();
+    setDone(false);setErr("");
+    const ex=prods[t];
+    if(ex){
+      setIsExist(true);
+      setForm({code:t,name:ex.name,category:ex.category||"غذائي",price:ex.price,expiry:ex.expiry,stock:""});
+    }else{
+      setIsExist(false);
+      setForm({code:t,name:"",price:"",expiry:"",stock:"",category:"غذائي"});
+    }
+  };
+
+  const scanCode=c=>{setScan(false);onCodeChange(c);};
+
+  const save=()=>{
+    if(!form.code.trim())return setErr("أدخل كود المنتج");
+    if(!isExist&&!form.name.trim())return setErr("أدخل اسم المنتج");
+    if(!form.price||isNaN(form.price))return setErr("أدخل السعر بشكل صحيح");
+    if(!form.expiry)return setErr("أدخل تاريخ الصلاحية");
+    if(!form.stock||isNaN(form.stock)||parseInt(form.stock)<=0)return setErr("أدخل الكمية المضافة");
+    const upd={...prods};
+    const addQty=parseInt(form.stock);
+    const newStock=isExist?(upd[form.code].stock+addQty):addQty;
+    if(isExist){
+      upd[form.code]={...upd[form.code],price:parseFloat(form.price),expiry:form.expiry,stock:newStock};
+    }else{
+      upd[form.code.trim()]={name:form.name.trim(),price:parseFloat(form.price),stock:addQty,expiry:form.expiry,category:form.category};
+    }
+    saveProds(upd);
+    setDoneStock(newStock);
+    setDone(true);setErr("");
+    setTimeout(()=>{setForm({code:"",name:"",price:"",stock:"",expiry:"",category:"غذائي"});setIsExist(false);setDone(false);},2500);
+  };
+
+  return(
+    <div className="sc">
+      {scan&&<QRScanner onScan={scanCode} onClose={()=>setScan(false)}/>}
+      <h2 style={{color:"#e6edf3",fontSize:15,fontWeight:700,marginBottom:13}}>➕ زيادة المخزون</h2>
+      <div className="card">
+        <div style={{marginBottom:12}}>
+          <p className="lbl">كود المنتج</p>
+          <div style={{display:"flex",gap:7}}>
+            <input className="inp" placeholder="أدخل أو امسح الكود..." value={form.code}
+              onChange={e=>onCodeChange(e.target.value)} style={{flex:1}}/>
+            <button className="btn btn-s btn-sm" style={{flexShrink:0}} onClick={()=>setScan(true)}>📷</button>
+          </div>
+        </div>
+        {isExist&&form.code&&(
+          <div className="card card-g" style={{marginBottom:12,padding:"9px 13px"}}>
+            <p style={{color:"#2ea043",fontWeight:700,fontSize:13}}>✅ منتج موجود: {form.name}</p>
+            <p style={{color:"#7d8590",fontSize:11,marginTop:2}}>المخزون الحالي: {prods[form.code]?.stock} وحدة</p>
+          </div>
+        )}
+        {!isExist&&form.code&&(
+          <div className="card card-r" style={{marginBottom:12,padding:"9px 13px"}}>
+            <p style={{color:"#f0883e",fontWeight:700,fontSize:13}}>🆕 منتج جديد — يرجى تعبئة جميع البيانات</p>
+          </div>
+        )}
+        {!isExist&&(
+          <div style={{marginBottom:12}}>
+            <p className="lbl">اسم المنتج</p>
+            <input className="inp" placeholder="مثال: زيت زيتون 500مل" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
+          </div>
+        )}
+        <div style={{marginBottom:12}}>
+          <p className="lbl">السعر (د.ل)</p>
+          <input className="inp" placeholder="0.00" type="number" value={form.price} onChange={e=>setForm(f=>({...f,price:e.target.value}))}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <p className="lbl">تاريخ انتهاء الصلاحية</p>
+          <input className="inp" type="date" value={form.expiry} onChange={e=>setForm(f=>({...f,expiry:e.target.value}))}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <p className="lbl">{isExist?"الكمية المضافة":"الكمية الأولية"}</p>
+          <input className="inp" placeholder="0" type="number" min="1" value={form.stock} onChange={e=>setForm(f=>({...f,stock:e.target.value}))}/>
+        </div>
+        {!isExist&&(
+          <div style={{marginBottom:12}}>
+            <p className="lbl">الفئة</p>
+            <select className="inp" value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>
+              {["غذائي","ألبان","عناية","مشروبات","أخرى"].map(x=><option key={x} value={x}>{x}</option>)}
+            </select>
+          </div>
+        )}
+        {err&&<p style={{color:"#f85149",fontSize:12,marginBottom:11}}>{err}</p>}
+        {done
+          ?<div className="card card-g" style={{textAlign:"center",padding:"12px"}}>
+            <p style={{color:"#2ea043",fontWeight:700,fontSize:14}}>✅ {isExist?"تم تحديث المخزون بنجاح":"تمت إضافة المنتج بنجاح"}</p>
+            {isExist&&<p style={{color:"#7d8590",fontSize:12,marginTop:3}}>المخزون الجديد: {doneStock} وحدة</p>}
+          </div>
+          :<button className="btn btn-p" onClick={save} disabled={!form.code}>
+            {isExist?"📦 إضافة الكمية للمخزون":"✅ إضافة منتج جديد"}
+          </button>
+        }
+      </div>
+      <div style={{marginTop:14}}>
+        <p style={{color:"#7d8590",fontSize:12,fontWeight:700,marginBottom:8}}>📊 أقل المنتجات مخزوناً</p>
+        {Object.entries(prods).sort((a,b)=>a[1].stock-b[1].stock).slice(0,5).map(([code,p])=>(
+          <div key={code} className="prow" style={{cursor:"pointer"}} onClick={()=>onCodeChange(code)}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <p style={{color:"#e6edf3",fontWeight:700,fontSize:13}}>{p.name}</p>
+                <p style={{color:"#484f58",fontSize:10}}>كود: {code} — اضغط للتعبئة</p>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <p style={{color:p.stock<=5?"#f85149":p.stock<=10?"#f0883e":"#3fb950",fontWeight:900,fontSize:17}}>{p.stock}</p>
+                <p style={{color:"#484f58",fontSize:10}}>وحدة</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════ Sales Tab ══════════ */
+function SalesTab({sales}){
+  const [open,setOpen]=useState(null);
+  const fresh=sales.filter(s=>Date.now()-s.ts<86400000);
+  const grandTotal=fresh.reduce((s,x)=>s+x.total,0);
+  return(
+    <div className="sc">
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:13}}>
+        <h2 style={{color:"#e6edf3",fontSize:15,fontWeight:700}}>🧾 مبيعات اليوم</h2>
+        <span className="tag tg">{fresh.length} فاتورة</span>
+      </div>
+      {fresh.length>0&&(
+        <div className="card card-g" style={{marginBottom:12,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <p style={{color:"#7d8590",fontSize:12}}>إجمالي اليوم</p>
+          <p style={{color:"#3fb950",fontWeight:900,fontSize:20}}>{grandTotal.toFixed(2)} د.ل</p>
+        </div>
+      )}
+      {fresh.length===0
+        ?<div className="emp card"><div className="emp-i">🧾</div><p className="emp-t">لا توجد مبيعات اليوم بعد</p></div>
+        :fresh.map(sale=>(
+          <div key={sale.id} className="inv-card" onClick={()=>setOpen(open===sale.id?null:sale.id)}>
+            <div className="inv-head">
+              <div>
+                <p style={{color:"#e6edf3",fontWeight:700,fontSize:13}}>{sale.id}</p>
+                <p style={{color:"#7d8590",fontSize:10,marginTop:2}}>🕐 {fmtTime(sale.ts)}</p>
+              </div>
+              <div style={{textAlign:"center"}}>
+                <p style={{color:"#3fb950",fontWeight:900,fontSize:15}}>{sale.total.toFixed(2)} د.ل</p>
+                <p style={{color:"#484f58",fontSize:10}}>{sale.items.length} صنف {open===sale.id?"▲":"▼"}</p>
+              </div>
+            </div>
+            {open===sale.id&&(
+              <div className="inv-body">
+                <div className="dv" style={{marginTop:0,marginBottom:8}}/>
+                {sale.items.map((it,i)=>(
+                  <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid rgba(48,54,61,0.3)",fontSize:12}}>
+                    <div>
+                      <p style={{color:"#e6edf3",fontWeight:600}}>{it.name}</p>
+                      <p style={{color:"#484f58",fontSize:10}}>كود: {it.code}  ·  {it.qty} × {it.price.toFixed(2)}</p>
+                    </div>
+                    <p style={{color:"#3fb950",fontWeight:700,fontSize:13}}>{it.total.toFixed(2)} د.ل</p>
+                  </div>
+                ))}
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:9,fontSize:13,fontWeight:700}}>
+                  <span style={{color:"#7d8590"}}>المجموع</span>
+                  <span style={{color:"#3fb950"}}>{sale.total.toFixed(2)} د.ل</span>
+                </div>
+              </div>
+            )}
+          </div>
+        ))
+      }
+      {fresh.length>0&&<div className="card" style={{marginTop:5,textAlign:"center"}}><p style={{color:"#7d8590",fontSize:11}}>📅 تُمسح الفواتير تلقائياً بعد 24 ساعة</p></div>}
+    </div>
+  );
+}
+
+/* ══════════ Notifs Tab ══════════ */
+function NotifsTab({notifs}){
+  const COLORS={
+    expiry:{bg:"rgba(210,105,30,.12)",br:"rgba(210,105,30,.28)",ic:"rgba(210,105,30,.18)"},
+    expired:{bg:"rgba(218,54,51,0.11)",br:"rgba(218,54,51,0.3)",ic:"rgba(218,54,51,.17)"},
+    stock:{bg:"rgba(210,105,30,.09)",br:"rgba(210,105,30,.22)",ic:"rgba(210,105,30,.16)"},
+    stockout:{bg:"rgba(218,54,51,0.11)",br:"rgba(218,54,51,0.3)",ic:"rgba(218,54,51,.17)"},
+  };
+  return(
+    <div className="sc">
+      <h2 style={{color:"#e6edf3",fontSize:15,fontWeight:700,marginBottom:13}}>🔔 الإشعارات</h2>
+      {notifs.length===0
+        ?<div className="emp card"><div className="emp-i">🔔</div><p className="emp-t">لا توجد إشعارات — كل شيء تمام!</p></div>
+        :notifs.map(n=>{
+          const cl=COLORS[n.type]||COLORS.stock;
+          return(
+            <div key={n.id} className="ni" style={{background:cl.bg,border:`1px solid ${cl.br}`,opacity:n.read?0.65:1}}>
+              <div className="ni-ico" style={{background:cl.ic}}>{n.icon}</div>
+              <div style={{flex:1}}>
+                <p style={{color:"#e6edf3",fontWeight:700,fontSize:13}}>{n.title}</p>
+                <p style={{color:"#7d8590",fontSize:11,marginTop:2}}>{n.body}</p>
+              </div>
+              {!n.read&&<div style={{width:7,height:7,borderRadius:"50%",background:"#2ea043",flexShrink:0,marginTop:4}}/>}
+            </div>
+          );
+        })
+      }
+    </div>
+  );
+}
+
+/* ══════════ Settings Tab ══════════ */
+function SettingsTab({sets,saveSets,user,onLogout}){
+  const [loc,setLoc]=useState(sets);
+  const [saved,setSaved]=useState(false);
+  const upd=(k,v)=>setLoc(s=>({...s,[k]:v}));
+  const save=()=>{saveSets(loc);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  return(
+    <div className="sc">
+      <h2 style={{color:"#e6edf3",fontSize:15,fontWeight:700,marginBottom:13}}>⚙️ الإعدادات</h2>
+      <div className="card" style={{marginBottom:12}}>
+        <p style={{color:"#7d8590",fontSize:11,fontWeight:700,marginBottom:5}}>معلومات الحساب</p>
+        <div className="sr"><div><p className="sl">{user.name}</p><p className="ss">{user.plan}</p></div><span className="tag tg">نشط ✓</span></div>
+        {user.subExpiry&&<div className="sr" style={{borderBottom:"none"}}><div><p className="sl">انتهاء الاشتراك</p><p className="ss">{fmtDate(user.subExpiry)}</p></div><span className="tag to">يتجدد</span></div>}
+      </div>
+      <div className="card" style={{marginBottom:12}}>
+        <p style={{color:"#7d8590",fontSize:11,fontWeight:700,marginBottom:5}}>حدود التنبيه</p>
+        <div className="sr">
+          <div><p className="sl">حد المخزون المنخفض</p><p className="ss">إشعار عند وصول الكمية لهذا الرقم</p></div>
+          <input className="ni2" type="number" min="1" value={loc.lowStock} onChange={e=>upd("lowStock",parseInt(e.target.value)||1)}/>
+        </div>
+        <div className="sr" style={{borderBottom:"none"}}>
+          <div><p className="sl">تحذير الصلاحية (أيام)</p><p className="ss">إشعار قبل انتهاء الصلاحية بهذا العدد</p></div>
+          <input className="ni2" type="number" min="1" value={loc.expiryDays} onChange={e=>upd("expiryDays",parseInt(e.target.value)||1)}/>
+        </div>
+      </div>
+      <div className="card" style={{marginBottom:12}}>
+        <div className="sr" style={{borderBottom:"none"}}>
+          <div><p className="sl">مدة حفظ الفواتير</p><p className="ss">تُمسح تلقائياً بعد 24 ساعة من البيع</p></div>
+          <span className="tag tg">24 ساعة</span>
+        </div>
+      </div>
+      <button className="btn btn-p" style={{marginBottom:8}} onClick={save}>{saved?"✅ تم الحفظ!":"💾 حفظ الإعدادات"}</button>
+      <button className="btn btn-d" style={{width:"100%"}} onClick={onLogout}>تسجيل الخروج</button>
+    </div>
+  );
+}
+
+/* ══════════ Install Banner ══════════ */
+function InstallBanner(){
+  const [prompt,setPrompt]=useState(null);
+  const [show,setShow]=useState(false);
+  useEffect(()=>{
+    const h=e=>{e.preventDefault();setPrompt(e);setShow(true);};
+    window.addEventListener("beforeinstallprompt",h);
+    return()=>window.removeEventListener("beforeinstallprompt",h);
+  },[]);
+  if(!show)return null;
+  return(
+    <div className="install-bar">
+      <div>
+        <p style={{color:"#fff",fontWeight:700,fontSize:13}}>📲 ثبّت تطبيق بيّاع</p>
+        <p style={{color:"rgba(255,255,255,0.7)",fontSize:11}}>يعمل بدون إنترنت بعد التثبيت</p>
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={()=>setShow(false)} style={{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:7,padding:"6px 12px",color:"#fff",fontFamily:"'Cairo',sans-serif",cursor:"pointer",fontSize:12}}>لاحقاً</button>
+        <button onClick={async()=>{if(prompt){await prompt.prompt();setShow(false);}}} style={{background:"#fff",border:"none",borderRadius:7,padding:"6px 14px",color:"#238636",fontFamily:"'Cairo',sans-serif",cursor:"pointer",fontSize:12,fontWeight:700}}>تثبيت</button>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════ ROOT APP ══════════ */
+function App(){
+  const [user,setUser]=useState(null);
+  const [booting,setBooting]=useState(true);
+  const [tab,setTab]=useState("pos");
+  const [prods,setProds]=useState({});
+  const [sets,setSets]=useState(INIT_SETS);
+  const [notifs,setNotifs]=useState([]);
+  const [unread,setUnread]=useState(0);
+  const [sales,setSales]=useState([]);
+
+  useEffect(()=>{
+    injectCSS();
+    // restore session
+    const sess=sg("session:user");
+    if(sess){const u=USERS[sess.phone];if(u&&u.subscribed&&(!u.subExpiry||daysUntil(u.subExpiry)>=0))setUser(sess);}
+    const p=sg("products:all"); setProds(p||INIT_PRODS);
+    const s=sg("settings:app"); setSets(s||INIT_SETS);
+    const n=sg("notifs:list"); if(n){setNotifs(n);setUnread(n.filter(x=>!x.read).length);}
+    const raw=sg("sales:list");
+    if(raw){const fresh=raw.filter(x=>Date.now()-x.ts<86400000);setSales(fresh);if(fresh.length!==raw.length)ss("sales:list",fresh);}
+    setBooting(false);
+  },[]);
+
+  // alerts
+  useEffect(()=>{
+    if(!Object.keys(prods).length)return;
+    const newN=[];
+    Object.entries(prods).forEach(([code,p])=>{
+      const d=daysUntil(p.expiry);
+      if(d>=0&&d<=sets.expiryDays)newN.push({id:`exp-${code}`,type:"expiry",icon:"⏰",title:"صلاحية قاربت على الانتهاء",body:`${p.name} — ينتهي خلال ${d} يوم`,read:false,ts:Date.now()});
+      if(d<0)newN.push({id:`xp-${code}`,type:"expired",icon:"❌",title:"منتج منتهي الصلاحية",body:`${p.name} — انتهت صلاحيته`,read:false,ts:Date.now()});
+      if(p.stock>0&&p.stock<=sets.lowStock)newN.push({id:`stk-${code}`,type:"stock",icon:"📦",title:"مخزون منخفض",body:`${p.name} — تبقى ${p.stock} وحدة`,read:false,ts:Date.now()});
+      if(p.stock===0)newN.push({id:`out-${code}`,type:"stockout",icon:"🚫",title:"نفذ المخزون",body:`${p.name} — نفد من المخزون`,read:false,ts:Date.now()});
+    });
+    setNotifs(prev=>{
+      const exist=new Set(prev.map(n=>n.id));
+      const merged=[...newN.filter(n=>!exist.has(n.id)),...prev];
+      setUnread(merged.filter(n=>!n.read).length);
+      ss("notifs:list",merged);
+      return merged;
+    });
+  },[prods,sets]);
+
+  const saveProds=p=>{setProds(p);ss("products:all",p);};
+  const saveSets=s=>{setSets(s);ss("settings:app",s);};
+  const addSale=sale=>setSales(prev=>{const u=[sale,...prev];ss("sales:list",u);return u;});
+  const markRead=()=>{setNotifs(prev=>{const n=prev.map(x=>({...x,read:true}));ss("notifs:list",n);return n;});setUnread(0);};
+  const logout=()=>{ss("session:user",null);setUser(null);setTab("pos");};
+
+  if(booting)return(
+    <div style={{minHeight:"100vh",background:"#0d1117",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:10}}>
+      <div style={{fontSize:40}}>🏪</div>
+      <p style={{color:"#7d8590",fontSize:14,fontFamily:"'Cairo',sans-serif"}}>جاري التحميل...</p>
+    </div>
+  );
+  if(!user)return <LoginScreen onLogin={setUser}/>;
+
+  const TABS=[
+    {id:"pos",icon:"🛒",label:"البيع"},
+    {id:"products",icon:"📦",label:"المنتجات"},
+    {id:"restock",icon:"➕",label:"زيادة المخزون"},
+    {id:"sales",icon:"🧾",label:"المبيعات"},
+    {id:"notifs",icon:"🔔",label:"الإشعارات"},
+    {id:"settings",icon:"⚙️",label:"الإعدادات"},
+  ];
+
+  return(
+    <div className="app">
+      <div className="tb">
+        <div className="tb-logo">
+          <div className="tb-ico">🏪</div>
+          <div><div className="tb-name">بيّاع</div><div className="tb-user">{user.name}</div></div>
+        </div>
+        <div className="tb-nav">
+          {TABS.map(t=>(
+            <button key={t.id} title={t.label} className={`nb${tab===t.id?" on":""}`}
+              onClick={()=>{if(t.id==="notifs")markRead();setTab(t.id);}}>
+              {t.icon}
+              {t.id==="notifs"&&unread>0&&<span className="nb-bd">{unread}</span>}
+            </button>
+          ))}
+          <button className="nb nb-out" onClick={logout}>خروج</button>
+        </div>
+      </div>
+      {tab==="pos"      &&<POSTab      prods={prods} saveProds={saveProds} sets={sets} addSale={addSale}/>}
+      {tab==="products" &&<ProductsTab prods={prods} saveProds={saveProds} sets={sets}/>}
+      {tab==="restock"  &&<RestockTab  prods={prods} saveProds={saveProds}/>}
+      {tab==="sales"    &&<SalesTab    sales={sales}/>}
+      {tab==="notifs"   &&<NotifsTab   notifs={notifs}/>}
+      {tab==="settings" &&<SettingsTab sets={sets} saveSets={saveSets} user={user} onLogout={logout}/>}
+      <InstallBanner/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+
+<!-- Service Worker for offline support -->
+<script>
+if("serviceWorker" in navigator){
+  const sw = `
+const CACHE = "bayyaa-v1";
+const ASSETS = [self.location.href];
+self.addEventListener("install", e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  self.skipWaiting();
+});
+self.addEventListener("activate", e => {
+  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));
+  self.clients.claim();
+});
+self.addEventListener("fetch", e => {
+  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request).catch(() => caches.match(self.location.href))));
+});
+  `;
+  const blob = new Blob([sw], {type:"application/javascript"});
+  const url  = URL.createObjectURL(blob);
+  navigator.serviceWorker.register(url).catch(()=>{});
+}
+</script>
+</body>
+</html>
